@@ -41,6 +41,22 @@ jobs:
         with:
           cache: true
 
+      - name: Locate Go caches
+        shell: bash
+        run: |
+          echo "GO_MODULE_CACHE=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_ENV"
+          echo "GO_BUILD_CACHE=$(mise exec -- go env GOCACHE)" >> "$GITHUB_ENV"
+
+      - name: Cache Go dependencies and builds
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ${{ env.GO_MODULE_CACHE }}
+            ${{ env.GO_BUILD_CACHE }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Determine application version
         shell: bash
         run: |
