@@ -1,5 +1,6 @@
 APP := 7d2d-mod-tracker
-GO ?= go
+MISE ?= mise
+GO ?= $(MISE) exec -- go
 GO_BIN := $(shell $(GO) env GOPATH)/bin
 FYNE ?= $(GO_BIN)/fyne
 FYNE_CROSS ?= $(GO_BIN)/fyne-cross
@@ -32,7 +33,7 @@ run:
 
 build: test
 	mkdir -p $(BUILD_DIR)
-	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(APP) .
+	$(GO) build -tags=migrated_fynedo -trimpath -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(APP) .
 
 package-native: test
 	$(FYNE) package -release

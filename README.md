@@ -6,12 +6,13 @@ configured mod pages.
 
 ## Development
 
-Install Go, a C compiler, and the graphics development packages required by
-Fyne, then run:
+Install [mise](https://mise.jdx.dev/), a C compiler, and the graphics
+development packages required by Fyne. The committed `mise.toml` installs the
+project's pinned Go version:
 
 ```bash
-go mod tidy
-go run .
+mise install
+make run
 ```
 
 The included `FyneApp.toml` opts into Fyne's single-event-thread `fyne.Do`

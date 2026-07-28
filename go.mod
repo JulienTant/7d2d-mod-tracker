@@ -1,6 +1,6 @@
 module 7d2d-mod-tracker
 
-go 1.23
+go 1.26.5
 
 require fyne.io/fyne/v2 v2.8.0
 

@@ -34,10 +34,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
+      - name: Set up mise toolchain
+        uses: jdx/mise-action@v4.2.3
         with:
-          go-version-file: go.mod
           cache: true
 
       - name: Install Linux build dependencies
@@ -55,10 +54,10 @@ jobs:
             xorg-dev
 
       - name: Test
-        run: go test ./...
+        run: mise exec -- go test ./...
 
       - name: Install Fyne packaging tool
-        run: go install fyne.io/tools/cmd/fyne@latest
+        run: mise exec -- go install fyne.io/tools/cmd/fyne@latest
 
       - name: Package Linux application
         if: runner.os == 'Linux'
