@@ -1,0 +1,12 @@
+# Native and cross-compiled output
+/build/
+/fyne-cross/
+/7d2d-mod-tracker
+/7d2d-mod-tracker.exe
+/7d2d-mod-tracker.app/
+/7d2d-mod-tracker.tar.xz
+/7d2d-mod-tracker.zip
+
+# Local tooling and operating-system files
+.DS_Store
+*.log

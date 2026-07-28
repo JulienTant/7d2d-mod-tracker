@@ -1,0 +1,117 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.os_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: Linux
+            runner: ubuntu-latest
+          - os_name: macOS
+            # Keep the artifact architecture predictable; macos-latest may
+            # migrate between Intel and Apple Silicon runner images.
+            runner: macos-15-intel
+          - os_name: Windows
+            runner: windows-latest
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            gcc \
+            libegl1-mesa-dev \
+            libgl1-mesa-dev \
+            libgles2-mesa-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxkbcommon-dev \
+            xorg-dev
+
+      - name: Test
+        run: go test ./...
+
+      - name: Install Fyne packaging tool
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Package Linux application
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          mkdir -p dist
+          mv 7d2d-mod-tracker.tar.xz dist/7d2d-mod-tracker-linux-amd64.tar.xz
+
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            7d2d-mod-tracker.app \
+            dist/7d2d-mod-tracker-macos-amd64.zip
+
+      - name: Package Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          New-Item -ItemType Directory -Force -Path dist
+          Move-Item `
+            7d2d-mod-tracker.exe `
+            dist/7d2d-mod-tracker-windows-amd64.exe
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: 7d2d-mod-tracker-${{ runner.os }}-amd64
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: 7d2d-mod-tracker-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes

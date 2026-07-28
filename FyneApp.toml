@@ -1,0 +1,14 @@
+[Details]
+  Name = "7D2D Mod Update Tracker"
+  ID = "com.7d2d.modtracker"
+  Version = "0.1.0"
+  Build = 8
+
+[LinuxAndBSD]
+  GenericName = "7 Days to Die Mod Update Tracker"
+  Categories = ["Game", "Utility"]
+  Comment = "Check installed 7 Days to Die mods for updates"
+  Keywords = ["7d2d", "mods", "updates"]
+
+[Migrations]
+  fyneDo = true
