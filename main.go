@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -86,7 +87,7 @@ func (s *uiState) build() {
 	settings := widget.NewButtonWithIcon("", theme.SettingsIcon(), s.showSettings)
 	settings.Importance = widget.LowImportance
 
-	s.cards = container.NewGridWrap(fyne.NewSize(450, 185))
+	s.cards = container.New(newResponsiveGridLayout(482, 217))
 	cardScroll := container.NewVScroll(s.cards)
 
 	s.status = widget.NewLabel("Choose a Mods folder to begin.")
@@ -354,7 +355,8 @@ func (s *uiState) buildModCard(mod *tracker.Mod) fyne.CanvasObject {
 	border.StrokeColor = borderColor
 	border.StrokeWidth = borderWidth
 	border.CornerRadius = 8
-	return container.NewStack(border, container.NewPadded(content))
+	card := container.NewStack(border, container.NewPadded(content))
+	return container.New(layout.NewCustomPaddedLayout(16, 16, 16, 16), card)
 }
 
 func (s *uiState) showCheckFailures(mod *tracker.Mod, result rowState) {
