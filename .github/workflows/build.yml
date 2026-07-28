@@ -118,7 +118,7 @@ jobs:
             --metadata "BuildRef=$BUILD_LABEL"
 
           mkdir -p appimage-input dist
-          tar -xJf 7d2d-mod-tracker.tar.xz -C appimage-input
+          tar -xJf 7d2d-mod-tracker.tar.xz -C appimage-input --strip-components=1
 
           gh api \
             -H "Accept: application/octet-stream" \
@@ -151,8 +151,8 @@ jobs:
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --executable appimage-input/usr/local/bin/7d2d-mod-tracker \
-            --desktop-file appimage-input/usr/local/share/applications/7d2d-mod-tracker.desktop \
-            --icon-file appimage-input/usr/local/share/pixmaps/7d2d-mod-tracker.png \
+            --desktop-file appimage-input/usr/local/share/applications/com.7d2d.modtracker.desktop \
+            --icon-file appimage-input/usr/local/share/pixmaps/com.7d2d.modtracker.png \
             --output appimage
 
           mkdir -p dist
