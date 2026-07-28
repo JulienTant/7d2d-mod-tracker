@@ -112,6 +112,8 @@ func (s *uiState) showSettings() {
 	folderEntry.SetText(s.folder.Text)
 	apiKeyEntry := widget.NewPasswordEntry()
 	apiKeyEntry.SetText(s.config.NexusAPIKey)
+	apiKeysURL, _ := url.Parse("https://www.nexusmods.com/settings/api-keys")
+	apiKeysLink := widget.NewHyperlink("Create or manage Nexus API keys", apiKeysURL)
 
 	browse := widget.NewButton("Browse…", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
@@ -131,6 +133,7 @@ func (s *uiState) showSettings() {
 	form := widget.NewForm(
 		widget.NewFormItem("Mods folder", folderRow),
 		widget.NewFormItem("Nexus API key", apiKeyEntry),
+		widget.NewFormItem("Nexus account", apiKeysLink),
 	)
 	save := widget.NewButton("Save", func() {
 		s.folder.SetText(strings.TrimSpace(folderEntry.Text))
@@ -158,7 +161,7 @@ func (s *uiState) showSettings() {
 	if width < 600 {
 		width = 600
 	}
-	settingsWindow.Resize(fyne.NewSize(width, 260))
+	settingsWindow.Resize(fyne.NewSize(width, 300))
 	settingsWindow.CenterOnScreen()
 	settingsWindow.Show()
 }
@@ -387,11 +390,10 @@ func (s *uiState) showCheckFailures(mod *tracker.Mod, result rowState) {
 	detailsEntry := widget.NewMultiLineEntry()
 	detailsEntry.Wrapping = fyne.TextWrapWord
 	detailsEntry.SetText(detailText)
-	detailsEntry.Disable()
 
 	detailWindow := s.app.NewWindow("Update check details — " + mod.Name)
 	copyDetails := widget.NewButtonWithIcon("Copy details", theme.ContentCopyIcon(), func() {
-		s.app.Clipboard().SetContent(detailText)
+		s.app.Clipboard().SetContent(detailsEntry.Text)
 	})
 	openLogs := widget.NewButtonWithIcon("Open logs", theme.FolderOpenIcon(), s.openLogs)
 	settings := widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), func() {
