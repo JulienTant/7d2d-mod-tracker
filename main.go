@@ -113,7 +113,7 @@ func (s *uiState) showSettings() {
 	apiKeyEntry := widget.NewPasswordEntry()
 	apiKeyEntry.SetText(s.config.NexusAPIKey)
 	apiKeysURL, _ := url.Parse("https://www.nexusmods.com/settings/api-keys")
-	apiKeysLink := widget.NewHyperlink("Create or manage Nexus API keys", apiKeysURL)
+	apiKeysLink := widget.NewHyperlink("Generate or manage a Nexus API key ↗", apiKeysURL)
 
 	browse := widget.NewButton("Browse…", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
@@ -130,10 +130,15 @@ func (s *uiState) showSettings() {
 		s.logger.Printf("detected Mods folder: %s", detected)
 	})
 	folderRow := container.NewBorder(nil, nil, nil, container.NewHBox(detect, browse), folderEntry)
-	form := widget.NewForm(
-		widget.NewFormItem("Mods folder", folderRow),
-		widget.NewFormItem("Nexus API key", apiKeyEntry),
-		widget.NewFormItem("Nexus account", apiKeysLink),
+	sectionSpacing := canvas.NewRectangle(color.Transparent)
+	sectionSpacing.SetMinSize(fyne.NewSize(1, 16))
+	settingsFields := container.NewVBox(
+		widget.NewLabelWithStyle("Mods folder", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		folderRow,
+		sectionSpacing,
+		widget.NewLabelWithStyle("Nexus API key", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		apiKeyEntry,
+		apiKeysLink,
 	)
 	save := widget.NewButton("Save", func() {
 		s.folder.SetText(strings.TrimSpace(folderEntry.Text))
@@ -155,7 +160,7 @@ func (s *uiState) showSettings() {
 		container.NewBorder(nil, nil, openLogs, container.NewHBox(cancel, save)),
 		nil,
 		nil,
-		form,
+		settingsFields,
 	))
 	width := s.window.Canvas().Size().Width * 0.7
 	if width < 600 {
