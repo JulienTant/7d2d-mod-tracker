@@ -19,6 +19,11 @@ The included `FyneApp.toml` opts into Fyne's single-event-thread `fyne.Do`
 migration. Network requests run in a background goroutine, and their UI
 updates are queued through `fyne.Do`.
 
+Folder browsing and `.7d2dml` import/export use the operating system's file
+selector instead of Fyne's in-window dialog. Windows uses its native common
+dialog, macOS uses the system picker, and Linux uses an installed Zenity-compatible
+dialog helper.
+
 The app checks the common Steam and per-user mod locations on Linux, macOS,
 and Windows, including Proton's Windows `%APPDATA%` prefix on Linux. Detection
 prefers locations containing real community mods and favors a populated

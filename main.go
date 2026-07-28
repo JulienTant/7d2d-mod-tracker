@@ -19,7 +19,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -123,13 +122,13 @@ func (s *uiState) showSettings() {
 	apiKeysLink := widget.NewHyperlink("Generate or manage a Nexus API key ↗", apiKeysURL)
 
 	browse := widget.NewButton("Browse…", func() {
-		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+		selectFolder(settingsWindow, func(path string, err error) {
 			if err != nil {
 				dialog.ShowError(err, settingsWindow)
-			} else if uri != nil {
-				folderEntry.SetText(uri.Path())
+			} else if path != "" {
+				folderEntry.SetText(path)
 			}
-		}, settingsWindow)
+		})
 	})
 	detect := widget.NewButton("Detect", func() {
 		detected := tracker.DetectModsPath()
@@ -226,16 +225,25 @@ func (s *uiState) exportMods(parent fyne.Window) {
 }
 
 func (s *uiState) saveModsArchive(parent fyne.Window, mods []tracker.Mod) {
-	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+	selectArchiveSave(parent, "7d2d-mods"+tracker.ModArchiveExtension, func(archivePath string, err error) {
 		if err != nil {
 			dialog.ShowError(err, parent)
 			return
 		}
-		if writer == nil {
+		if archivePath == "" {
 			return
 		}
 		s.status.SetText(fmt.Sprintf("Exporting %d mod(s)…", len(mods)))
 		go func() {
+			writer, createErr := os.Create(archivePath)
+			if createErr != nil {
+				fyne.Do(func() {
+					s.logger.Printf("could not create mod archive %s: %v", archivePath, createErr)
+					s.status.SetText("Mod export failed.")
+					dialog.ShowError(createErr, parent)
+				})
+				return
+			}
 			exportErr := tracker.ExportModsArchive(writer, mods)
 			closeErr := writer.Close()
 			if exportErr == nil {
@@ -248,7 +256,7 @@ func (s *uiState) saveModsArchive(parent fyne.Window, mods []tracker.Mod) {
 					dialog.ShowError(exportErr, parent)
 					return
 				}
-				s.logger.Printf("exported %d mods to %s", len(mods), writer.URI())
+				s.logger.Printf("exported %d mods to %s", len(mods), archivePath)
 				s.status.SetText(fmt.Sprintf("Exported %d mod(s).", len(mods)))
 				dialog.ShowInformation(
 					"Mods exported",
@@ -257,10 +265,7 @@ func (s *uiState) saveModsArchive(parent fyne.Window, mods []tracker.Mod) {
 				)
 			})
 		}()
-	}, parent)
-	saveDialog.SetFileName("7d2d-mods" + tracker.ModArchiveExtension)
-	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{tracker.ModArchiveExtension}))
-	saveDialog.Show()
+	})
 }
 
 func (s *uiState) importMods(parent fyne.Window, destination string) {
@@ -268,17 +273,12 @@ func (s *uiState) importMods(parent fyne.Window, destination string) {
 		dialog.ShowInformation("Choose a Mods folder", "Set the destination Mods folder before importing.", parent)
 		return
 	}
-	openDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+	selectArchiveOpen(parent, func(archivePath string, err error) {
 		if err != nil {
 			dialog.ShowError(err, parent)
 			return
 		}
-		if reader == nil {
-			return
-		}
-		archivePath := reader.URI().Path()
-		if closeErr := reader.Close(); closeErr != nil {
-			dialog.ShowError(closeErr, parent)
+		if archivePath == "" {
 			return
 		}
 		s.status.SetText("Reading mod archive…")
@@ -329,9 +329,7 @@ func (s *uiState) importMods(parent fyne.Window, destination string) {
 				)
 			})
 		}()
-	}, parent)
-	openDialog.SetFilter(storage.NewExtensionFileFilter([]string{tracker.ModArchiveExtension}))
-	openDialog.Show()
+	})
 }
 
 func (s *uiState) installModsArchive(
