@@ -134,6 +134,11 @@ The Linux target builds a small derivative of the official fyne-cross image
 that adds the EGL development headers required by current GLFW/Fyne releases.
 This workaround is defined in `packaging/fyne-cross-linux.Dockerfile`.
 
+Tagged GitHub releases include a portable Linux amd64 AppImage in addition to
+the generic Fyne archive. macOS is packaged as separate Intel and Apple Silicon
+DMG downloads with the usual drag-to-Applications layout. These macOS packages
+are currently unsigned and are therefore subject to Gatekeeper warnings.
+
 ### Distribution notes
 
 - Add a square `Icon.png` before public packaging. Fyne uses

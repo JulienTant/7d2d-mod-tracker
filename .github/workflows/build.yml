@@ -21,14 +21,22 @@ jobs:
         include:
           - os_name: Linux
             runner: ubuntu-24.04
+            arch: amd64
           - os_name: macOS
             # Keep the artifact architecture predictable; macos-latest may
             # migrate between Intel and Apple Silicon runner images.
             runner: macos-15-intel
+            arch: amd64
+          - os_name: macOS Apple Silicon
+            runner: macos-15
+            arch: arm64
           - os_name: Windows
             runner: windows-2025
+            arch: amd64
 
     runs-on: ${{ matrix.runner }}
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
 
     steps:
       - name: Check out repository
@@ -99,6 +107,8 @@ jobs:
       - name: Package Linux application
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           fyne package --release \
             --name 7d2d-mod-tracker \
@@ -106,6 +116,45 @@ jobs:
             --app-version "$APP_VERSION" \
             --app-build "$GITHUB_RUN_NUMBER" \
             --metadata "BuildRef=$BUILD_LABEL"
+
+          mkdir -p appimage-input dist
+          tar -xJf 7d2d-mod-tracker.tar.xz -C appimage-input
+
+          gh api \
+            -H "Accept: application/octet-stream" \
+            /repos/linuxdeploy/linuxdeploy/releases/assets/462806018 \
+            > linuxdeploy-x86_64.AppImage
+          echo "e87ee0815d109282fdda73e34c2361d64d02b0ffaea3674b18f1fd1f6a687dcf  linuxdeploy-x86_64.AppImage" \
+            | sha256sum --check
+
+          gh api \
+            -H "Accept: application/octet-stream" \
+            /repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/462804774 \
+            > linuxdeploy-plugin-appimage-x86_64.AppImage
+          echo "1da16a46fa5e058ae740e7c35ed0d36d86cb869ac9cc8a5fd9a1847d7978d99a  linuxdeploy-plugin-appimage-x86_64.AppImage" \
+            | sha256sum --check
+
+          gh api \
+            -H "Accept: application/octet-stream" \
+            /repos/AppImage/type2-runtime/releases/assets/456065460 \
+            > runtime-x86_64
+          echo "1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf  runtime-x86_64" \
+            | sha256sum --check
+
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-appimage-x86_64.AppImage
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export ARCH=x86_64
+          export NO_STRIP=1
+          export LDAI_RUNTIME_FILE="$PWD/runtime-x86_64"
+          export LDAI_OUTPUT="$PWD/dist/7d2d-mod-tracker-${BUILD_LABEL}-linux-amd64.AppImage"
+          export PATH="$PWD:$PATH"
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable appimage-input/usr/local/bin/7d2d-mod-tracker \
+            --desktop-file appimage-input/usr/local/share/applications/7d2d-mod-tracker.desktop \
+            --icon-file appimage-input/usr/local/share/pixmaps/7d2d-mod-tracker.png \
+            --output appimage
+
           mkdir -p dist
           mv 7d2d-mod-tracker.tar.xz \
             "dist/7d2d-mod-tracker-${BUILD_LABEL}-linux-amd64.tar.xz"
@@ -120,10 +169,15 @@ jobs:
             --app-version "$APP_VERSION" \
             --app-build "$GITHUB_RUN_NUMBER" \
             --metadata "BuildRef=$BUILD_LABEL"
-          mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent \
-            7d2d-mod-tracker.app \
-            "dist/7d2d-mod-tracker-${BUILD_LABEL}-macos-amd64.zip"
+          mkdir -p dist dmg-root
+          cp -R 7d2d-mod-tracker.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create \
+            -volname "7D2D Mod Tracker" \
+            -srcfolder dmg-root \
+            -ov \
+            -format UDZO \
+            "dist/7d2d-mod-tracker-${BUILD_LABEL}-macos-${TARGET_ARCH}.dmg"
 
       - name: Package Windows application
         if: runner.os == 'Windows'
@@ -138,12 +192,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Move-Item `
             7d2d-mod-tracker.exe `
-            "dist/7d2d-mod-tracker-$env:BUILD_LABEL-windows-amd64.exe"
+            "dist/7d2d-mod-tracker-$env:BUILD_LABEL-windows-$env:TARGET_ARCH.exe"
 
       - name: Upload package
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: 7d2d-mod-tracker-${{ env.BUILD_LABEL }}-${{ runner.os }}-amd64
+          name: 7d2d-mod-tracker-${{ env.BUILD_LABEL }}-${{ runner.os }}-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
 
