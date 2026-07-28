@@ -10,15 +10,13 @@ FYNE_CROSS_LINUX_IMAGE := 7d2d-fyne-cross-linux
 BUILD_DIR := build
 LDFLAGS := -s -w
 
-.PHONY: help test run run-simulated-error build package-native tools cross-image-linux \
+.PHONY: help test run build package-native tools cross-image-linux \
 	cross-all cross-linux cross-windows cross-darwin cross-freebsd clean
 
 help:
 	@echo "Development:"
 	@echo "  make test             Run all Go tests"
 	@echo "  make run              Run the app locally"
-	@echo "  make run-simulated-error"
-	@echo "                        Run with a simulated source failure"
 	@echo "  make build            Build a native executable in build/"
 	@echo "  make package-native   Create a native Fyne distribution package"
 	@echo ""
@@ -34,9 +32,6 @@ test:
 
 run:
 	$(GO) run .
-
-run-simulated-error:
-	MODTRACKER_SIMULATE_UPDATE_ERROR=1 $(GO) run .
 
 build: test
 	mkdir -p $(BUILD_DIR)

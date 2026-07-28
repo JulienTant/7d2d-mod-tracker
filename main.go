@@ -539,32 +539,15 @@ func (s *uiState) checkAll() {
 		dialog.ShowInformation("No sources", "Select a mod and use “Set sources…” first.", s.window)
 		return
 	}
-	sort.SliceStable(targets, func(i, j int) bool {
-		return strings.ToLower(targets[i].Name) < strings.ToLower(targets[j].Name)
-	})
 	s.checking = true
 	s.checkButton.Disable()
 	s.status.SetText(fmt.Sprintf("Checking %d mod(s)…", len(targets)))
 	s.logger.Printf("checking updates for %d mods", len(targets))
 	go func() {
 		checker := tracker.NewChecker(s.config.NexusAPIKey)
-		simulateFailure := os.Getenv("MODTRACKER_SIMULATE_UPDATE_ERROR") == "1"
-		for modIndex, mod := range targets {
+		for _, mod := range targets {
 			var checks []tracker.CheckResult
-			for sourceIndex, source := range mod.Sources {
-				if simulateFailure && modIndex == 0 && sourceIndex == 0 {
-					checks = append(checks, tracker.CheckResult{
-						URL:      source,
-						Endpoint: source,
-						Err: &tracker.HTTPStatusError{
-							StatusCode: 403,
-							Status:     "403 Forbidden",
-							RequestID:  "simulated-for-ui-testing",
-						},
-					})
-					s.logger.Printf("simulated update source failure for %q (%s)", mod.Name, source)
-					continue
-				}
+			for _, source := range mod.Sources {
 				checks = append(checks, checker.Check(context.Background(), source))
 			}
 			latest := tracker.Latest(checks)
