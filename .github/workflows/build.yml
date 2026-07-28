@@ -33,11 +33,32 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up mise toolchain
         uses: jdx/mise-action@v4.2.3
         with:
           cache: true
+
+      - name: Determine application version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            app_version="${GITHUB_REF_NAME#v}"
+            build_label="$GITHUB_REF_NAME"
+          else
+            latest_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+            if [[ -n "$latest_tag" ]]; then
+              app_version="${latest_tag#v}"
+            else
+              app_version="$(awk -F'"' '/^[[:space:]]*Version[[:space:]]*=/{print $2; exit}' FyneApp.toml)"
+            fi
+            build_label="${app_version}+${GITHUB_SHA::7}"
+          fi
+
+          echo "APP_VERSION=$app_version" >> "$GITHUB_ENV"
+          echo "BUILD_LABEL=$build_label" >> "$GITHUB_ENV"
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -63,34 +84,50 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          fyne package --release \
+            --name 7d2d-mod-tracker \
+            --icon Icon.png \
+            --app-version "$APP_VERSION" \
+            --app-build "$GITHUB_RUN_NUMBER" \
+            --metadata "BuildRef=$BUILD_LABEL"
           mkdir -p dist
-          mv 7d2d-mod-tracker.tar.xz dist/7d2d-mod-tracker-linux-amd64.tar.xz
+          mv 7d2d-mod-tracker.tar.xz \
+            "dist/7d2d-mod-tracker-${BUILD_LABEL}-linux-amd64.tar.xz"
 
       - name: Package macOS application
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          fyne package --release \
+            --name 7d2d-mod-tracker \
+            --icon Icon.png \
+            --app-version "$APP_VERSION" \
+            --app-build "$GITHUB_RUN_NUMBER" \
+            --metadata "BuildRef=$BUILD_LABEL"
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent \
             7d2d-mod-tracker.app \
-            dist/7d2d-mod-tracker-macos-amd64.zip
+            "dist/7d2d-mod-tracker-${BUILD_LABEL}-macos-amd64.zip"
 
       - name: Package Windows application
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          fyne package --release --name 7d2d-mod-tracker --icon Icon.png
+          fyne package --release `
+            --name 7d2d-mod-tracker `
+            --icon Icon.png `
+            --app-version $env:APP_VERSION `
+            --app-build $env:GITHUB_RUN_NUMBER `
+            --metadata "BuildRef=$env:BUILD_LABEL"
           New-Item -ItemType Directory -Force -Path dist
           Move-Item `
             7d2d-mod-tracker.exe `
-            dist/7d2d-mod-tracker-windows-amd64.exe
+            "dist/7d2d-mod-tracker-$env:BUILD_LABEL-windows-amd64.exe"
 
       - name: Upload package
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: 7d2d-mod-tracker-${{ runner.os }}-amd64
+          name: 7d2d-mod-tracker-${{ env.BUILD_LABEL }}-${{ runner.os }}-amd64
           path: dist/*
           if-no-files-found: error
 
