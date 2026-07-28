@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -29,8 +30,10 @@ var exampleSources = []string{
 }
 
 type rowState struct {
-	latest string
-	status tracker.UpdateStatus
+	latest   string
+	status   tracker.UpdateStatus
+	failures []tracker.CheckResult
+	checked  time.Time
 }
 
 type uiState struct {
@@ -83,7 +86,7 @@ func (s *uiState) build() {
 	settings := widget.NewButtonWithIcon("", theme.SettingsIcon(), s.showSettings)
 	settings.Importance = widget.LowImportance
 
-	s.cards = container.NewGridWrap(fyne.NewSize(450, 150))
+	s.cards = container.NewGridWrap(fyne.NewSize(450, 185))
 	cardScroll := container.NewVScroll(s.cards)
 
 	s.status = widget.NewLabel("Choose a Mods folder to begin.")
@@ -300,6 +303,18 @@ func (s *uiState) buildModCard(mod *tracker.Mod) fyne.CanvasObject {
 		func() { s.setSources(mod) },
 	)
 	actions = append(actions, editButton)
+	var failureAction fyne.CanvasObject
+	if len(result.failures) > 0 {
+		failureLabel := tracker.SourceName(result.failures[0].URL) + " failed — details"
+		if len(result.failures) > 1 {
+			failureLabel = fmt.Sprintf("%d sources failed — details", len(result.failures))
+		}
+		failureAction = widget.NewButtonWithIcon(
+			failureLabel,
+			theme.WarningIcon(),
+			func() { s.showCheckFailures(mod, result) },
+		)
+	}
 
 	updateAvailable := status == tracker.StatusUpdateAvailable
 	statusText := status.String()
@@ -311,11 +326,15 @@ func (s *uiState) buildModCard(mod *tracker.Mod) fyne.CanvasObject {
 		fyne.TextAlignLeading,
 		fyne.TextStyle{Bold: updateAvailable},
 	)
-	content := container.NewVBox(
+	contentItems := []fyne.CanvasObject{
 		container.NewBorder(nil, nil, title, statusLabel),
 		versionInfo,
-		container.NewHBox(actions...),
-	)
+	}
+	if failureAction != nil {
+		contentItems = append(contentItems, failureAction)
+	}
+	contentItems = append(contentItems, container.NewHBox(actions...))
+	content := container.NewVBox(contentItems...)
 
 	borderColor := color.NRGBA{R: 0x78, G: 0x78, B: 0x78, A: 0x80}
 	borderWidth := float32(1)
@@ -328,6 +347,68 @@ func (s *uiState) buildModCard(mod *tracker.Mod) fyne.CanvasObject {
 	border.StrokeWidth = borderWidth
 	border.CornerRadius = 8
 	return container.NewStack(border, container.NewPadded(content))
+}
+
+func (s *uiState) showCheckFailures(mod *tracker.Mod, result rowState) {
+	var details strings.Builder
+	fmt.Fprintf(&details, "Mod: %s\nInstalled version: %s\n", mod.Name, mod.Version)
+	if !result.checked.IsZero() {
+		fmt.Fprintf(&details, "Checked: %s\n", result.checked.Format(time.RFC3339))
+	}
+	metadata := s.app.Metadata()
+	appName := metadata.Name
+	if appName == "" {
+		appName = "7D2D Mod Update Tracker"
+	}
+	appVersion := metadata.Version
+	if appVersion == "" {
+		appVersion = "development"
+	}
+	fmt.Fprintf(&details, "App: %s %s (build %d)\nRuntime: %s, %s/%s\n",
+		appName,
+		appVersion,
+		metadata.Build,
+		runtime.Version(),
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	for i, failure := range result.failures {
+		fmt.Fprintf(&details, "\nFailure %d\n%s\nSource: %s\n",
+			i+1,
+			tracker.CheckFailureDetail(failure, s.config.NexusAPIKey != ""),
+			failure.URL,
+		)
+		if failure.Endpoint != "" && failure.Endpoint != failure.URL {
+			fmt.Fprintf(&details, "Request endpoint: %s\n", failure.Endpoint)
+		}
+	}
+
+	detailText := details.String()
+	detailsEntry := widget.NewMultiLineEntry()
+	detailsEntry.Wrapping = fyne.TextWrapWord
+	detailsEntry.SetText(detailText)
+	detailsEntry.Disable()
+
+	detailWindow := s.app.NewWindow("Update check details — " + mod.Name)
+	copyDetails := widget.NewButtonWithIcon("Copy details", theme.ContentCopyIcon(), func() {
+		s.app.Clipboard().SetContent(detailText)
+	})
+	openLogs := widget.NewButtonWithIcon("Open logs", theme.FolderOpenIcon(), s.openLogs)
+	settings := widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), func() {
+		detailWindow.Close()
+		s.showSettings()
+	})
+	closeButton := widget.NewButton("Close", detailWindow.Close)
+	detailWindow.SetContent(container.NewBorder(
+		nil,
+		container.NewHBox(copyDetails, openLogs, settings, closeButton),
+		nil,
+		nil,
+		detailsEntry,
+	))
+	detailWindow.Resize(fyne.NewSize(720, 430))
+	detailWindow.CenterOnScreen()
+	detailWindow.Show()
 }
 
 func (s *uiState) setSources(mod *tracker.Mod) {
@@ -463,18 +544,21 @@ func (s *uiState) checkAll() {
 				checks = append(checks, checker.Check(context.Background(), source))
 			}
 			latest := tracker.Latest(checks)
-			result := rowState{status: tracker.StatusCheckFailed}
+			result := rowState{status: tracker.StatusCheckFailed, checked: time.Now()}
+			for _, check := range checks {
+				if check.Err != nil {
+					result.failures = append(result.failures, check)
+				}
+			}
+			for _, check := range result.failures {
+				s.logger.Printf("update source failed for %q: source=%s endpoint=%s error=%T: %v",
+					mod.Name, check.URL, check.Endpoint, check.Err, check.Err)
+			}
 			if latest.Err == nil {
 				result.latest = latest.Version
 				result.status = tracker.CompareVersions(mod.Version, latest.Version)
 				s.logger.Printf("update check %q: installed=%q latest=%q status=%s",
 					mod.Name, mod.Version, latest.Version, result.status)
-			} else {
-				for _, check := range checks {
-					if check.Err != nil {
-						s.logger.Printf("update source failed for %q (%s): %v", mod.Name, check.URL, check.Err)
-					}
-				}
 			}
 			fyne.Do(func() {
 				s.results[mod.Folder] = result

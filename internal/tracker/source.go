@@ -3,6 +3,7 @@ package tracker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,9 +27,21 @@ var (
 )
 
 type CheckResult struct {
-	URL     string
-	Version string
-	Err     error
+	URL      string
+	Endpoint string
+	Version  string
+	Err      error
+}
+
+type HTTPStatusError struct {
+	StatusCode int
+	Status     string
+	RequestID  string
+	RetryAfter string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return e.Status
 }
 
 type SourceIDs struct {
@@ -143,6 +156,54 @@ func NewChecker(apiKey string) *Checker {
 	return &Checker{Client: &http.Client{Timeout: 20 * time.Second}, APIKey: apiKey}
 }
 
+func SourceName(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "Source"
+	}
+	host := strings.ToLower(parsed.Hostname())
+	switch {
+	case host == "nexusmods.com" || strings.HasSuffix(host, ".nexusmods.com"):
+		return "Nexus"
+	case host == "7daystodiemods.com" || strings.HasSuffix(host, ".7daystodiemods.com"):
+		return "7D2D Mods"
+	default:
+		return "Source"
+	}
+}
+
+func CheckFailureDetail(result CheckResult, nexusAPIKeyConfigured bool) string {
+	provider := SourceName(result.URL)
+	var statusErr *HTTPStatusError
+	if errors.As(result.Err, &statusErr) {
+		var explanation string
+		switch {
+		case provider == "Nexus" && statusErr.StatusCode == http.StatusForbidden && !nexusAPIKeyConfigured:
+			explanation = "Nexus blocked the public mod page. Add a Nexus API key in Settings for reliable update checks."
+		case provider == "Nexus" && statusErr.StatusCode == http.StatusForbidden:
+			explanation = "Nexus rejected the request. Check that the Nexus API key in Settings is valid and has access to this mod."
+		case statusErr.StatusCode == http.StatusTooManyRequests:
+			explanation = "The service rate limit was reached. Wait before checking again."
+		case statusErr.StatusCode >= 500:
+			explanation = "The update service reported a server error. Try again later."
+		default:
+			explanation = "The update service rejected the request."
+		}
+		detail := fmt.Sprintf("%s: %s\n%s", provider, statusErr.Status, explanation)
+		if statusErr.RetryAfter != "" {
+			detail += "\nRetry-After: " + statusErr.RetryAfter
+		}
+		if statusErr.RequestID != "" {
+			detail += "\nRequest ID: " + statusErr.RequestID
+		}
+		return detail
+	}
+	if errors.Is(result.Err, ErrNoVersion) {
+		return provider + ": The page responded successfully, but no mod version could be identified."
+	}
+	return fmt.Sprintf("%s: %v", provider, result.Err)
+}
+
 func sevenD2DAPIURL(pageURL string) string {
 	parsed, err := url.Parse(pageURL)
 	if err != nil {
@@ -184,7 +245,7 @@ func extractSevenD2DVersion(body []byte) string {
 
 func (c *Checker) Check(ctx context.Context, pageURL string) CheckResult {
 	if !IsSupportedSource(pageURL) {
-		return CheckResult{URL: pageURL, Err: fmt.Errorf("unsupported update source")}
+		return CheckResult{URL: pageURL, Endpoint: pageURL, Err: fmt.Errorf("unsupported update source")}
 	}
 	targetURL := pageURL
 	sevenD2DAPI := false
@@ -200,7 +261,7 @@ func (c *Checker) Check(ctx context.Context, pageURL string) CheckResult {
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return CheckResult{URL: pageURL, Err: err}
+		return CheckResult{URL: pageURL, Endpoint: targetURL, Err: err}
 	}
 	request.Header.Set("User-Agent", "7D2D-Mod-Tracker/0.1")
 	for key, value := range headers {
@@ -208,36 +269,49 @@ func (c *Checker) Check(ctx context.Context, pageURL string) CheckResult {
 	}
 	response, err := c.Client.Do(request)
 	if err != nil {
-		return CheckResult{URL: pageURL, Err: err}
+		return CheckResult{URL: pageURL, Endpoint: targetURL, Err: err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return CheckResult{URL: pageURL, Err: fmt.Errorf("HTTP %d", response.StatusCode)}
+		requestID := response.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = response.Header.Get("CF-Ray")
+		}
+		return CheckResult{
+			URL:      pageURL,
+			Endpoint: targetURL,
+			Err: &HTTPStatusError{
+				StatusCode: response.StatusCode,
+				Status:     response.Status,
+				RequestID:  requestID,
+				RetryAfter: response.Header.Get("Retry-After"),
+			},
+		}
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 	if err != nil {
-		return CheckResult{URL: pageURL, Err: err}
+		return CheckResult{URL: pageURL, Endpoint: targetURL, Err: err}
 	}
 	if sevenD2DAPI {
 		version := extractSevenD2DVersion(body)
 		if version == "" {
-			return CheckResult{URL: pageURL, Err: ErrNoVersion}
+			return CheckResult{URL: pageURL, Endpoint: targetURL, Err: ErrNoVersion}
 		}
-		return CheckResult{URL: pageURL, Version: version}
+		return CheckResult{URL: pageURL, Endpoint: targetURL, Version: version}
 	}
 	if targetURL != pageURL {
 		var payload struct {
 			Version string `json:"version"`
 		}
 		if json.Unmarshal(body, &payload) == nil && payload.Version != "" {
-			return CheckResult{URL: pageURL, Version: payload.Version}
+			return CheckResult{URL: pageURL, Endpoint: targetURL, Version: payload.Version}
 		}
 	}
 	version := extractPageVersion(string(body))
 	if version == "" {
-		return CheckResult{URL: pageURL, Err: ErrNoVersion}
+		return CheckResult{URL: pageURL, Endpoint: targetURL, Err: ErrNoVersion}
 	}
-	return CheckResult{URL: pageURL, Version: version}
+	return CheckResult{URL: pageURL, Endpoint: targetURL, Version: version}
 }
 
 func extractPageVersion(page string) string {
