@@ -1,7 +1,7 @@
 # fyne-cross 1.6.2's Linux image does not include EGL headers required by
 # current GLFW/Fyne builds. Keep this image minimal and remove it once the
 # upstream image includes libegl-dev for all target architectures.
-FROM fyneio/fyne-cross-images:linux
+FROM fyneio/fyne-cross-images:linux@sha256:da6dc85db54d161eaa45342d04e6eeb5aa388da9fcc3694b0fff932c7416b116
 
 RUN set -eux; \
     apt-get update; \

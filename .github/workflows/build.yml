@@ -20,13 +20,13 @@ jobs:
       matrix:
         include:
           - os_name: Linux
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - os_name: macOS
             # Keep the artifact architecture predictable; macos-latest may
             # migrate between Intel and Apple Silicon runner images.
             runner: macos-15-intel
           - os_name: Windows
-            runner: windows-latest
+            runner: windows-2025
 
     runs-on: ${{ matrix.runner }}
 
@@ -94,7 +94,7 @@ jobs:
         run: mise exec -- go test ./...
 
       - name: Install Fyne packaging tool
-        run: mise exec -- go install fyne.io/tools/cmd/fyne@latest
+        run: mise exec -- go install fyne.io/tools/cmd/fyne@v1.7.2
 
       - name: Package Linux application
         if: runner.os == 'Linux'
@@ -151,7 +151,7 @@ jobs:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 

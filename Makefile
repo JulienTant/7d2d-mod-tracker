@@ -4,6 +4,8 @@ GO ?= $(MISE) exec -- go
 GO_BIN := $(shell $(GO) env GOPATH)/bin
 FYNE ?= $(GO_BIN)/fyne
 FYNE_CROSS ?= $(GO_BIN)/fyne-cross
+FYNE_TOOLS_VERSION := v1.7.2
+FYNE_CROSS_VERSION := v1.6.2
 FYNE_CROSS_LINUX_IMAGE := 7d2d-fyne-cross-linux
 BUILD_DIR := build
 LDFLAGS := -s -w
@@ -39,8 +41,8 @@ package-native: test
 	$(FYNE) package -release
 
 tools:
-	$(GO) install fyne.io/tools/cmd/fyne@latest
-	$(GO) install github.com/fyne-io/fyne-cross@latest
+	$(GO) install fyne.io/tools/cmd/fyne@$(FYNE_TOOLS_VERSION)
+	$(GO) install github.com/fyne-io/fyne-cross@$(FYNE_CROSS_VERSION)
 
 cross-all: test cross-linux cross-windows cross-darwin cross-freebsd
 
