@@ -19,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -35,6 +36,11 @@ type rowState struct {
 	status   tracker.UpdateStatus
 	failures []tracker.CheckResult
 	checked  time.Time
+}
+
+type modSelectionItem struct {
+	key   string
+	label string
 }
 
 type uiState struct {
@@ -156,9 +162,20 @@ func (s *uiState) showSettings() {
 	})
 	cancel := widget.NewButton("Cancel", settingsWindow.Close)
 	openLogs := widget.NewButtonWithIcon("Open logs", theme.FolderOpenIcon(), s.openLogs)
+	exportMods := widget.NewButtonWithIcon("Export Mods…", theme.DownloadIcon(), func() {
+		s.exportMods(settingsWindow)
+	})
+	importMods := widget.NewButtonWithIcon("Import Mods…", theme.UploadIcon(), func() {
+		s.importMods(settingsWindow, strings.TrimSpace(folderEntry.Text))
+	})
 	settingsWindow.SetContent(container.NewBorder(
 		nil,
-		container.NewBorder(nil, nil, openLogs, container.NewHBox(cancel, save)),
+		container.NewBorder(
+			nil,
+			nil,
+			container.NewHBox(openLogs, exportMods, importMods),
+			container.NewHBox(cancel, save),
+		),
 		nil,
 		nil,
 		settingsFields,
@@ -170,6 +187,271 @@ func (s *uiState) showSettings() {
 	settingsWindow.Resize(fyne.NewSize(width, 300))
 	settingsWindow.CenterOnScreen()
 	settingsWindow.Show()
+}
+
+func (s *uiState) exportMods(parent fyne.Window) {
+	if len(s.mods) == 0 {
+		dialog.ShowInformation("Nothing to export", "No community mods are currently loaded.", parent)
+		return
+	}
+	mods := append([]tracker.Mod(nil), s.mods...)
+	sort.SliceStable(mods, func(i, j int) bool {
+		return strings.ToLower(mods[i].Name) < strings.ToLower(mods[j].Name)
+	})
+	items := make([]modSelectionItem, 0, len(mods))
+	modsByFolder := make(map[string]tracker.Mod, len(mods))
+	for _, mod := range mods {
+		label := mod.Name
+		if mod.Version != "" {
+			label += " — " + mod.Version
+		}
+		items = append(items, modSelectionItem{key: mod.Folder, label: label})
+		modsByFolder[mod.Folder] = mod
+	}
+	s.showModSelection(
+		"Select mods to export",
+		"Choose the mod folders and source mappings to include.",
+		"Export selected…",
+		items,
+		func(selected map[string]bool) {
+			var selectedMods []tracker.Mod
+			for _, item := range items {
+				if selected[item.key] {
+					selectedMods = append(selectedMods, modsByFolder[item.key])
+				}
+			}
+			s.saveModsArchive(parent, selectedMods)
+		},
+	)
+}
+
+func (s *uiState) saveModsArchive(parent fyne.Window, mods []tracker.Mod) {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, parent)
+			return
+		}
+		if writer == nil {
+			return
+		}
+		s.status.SetText(fmt.Sprintf("Exporting %d mod(s)…", len(mods)))
+		go func() {
+			exportErr := tracker.ExportModsArchive(writer, mods)
+			closeErr := writer.Close()
+			if exportErr == nil {
+				exportErr = closeErr
+			}
+			fyne.Do(func() {
+				if exportErr != nil {
+					s.logger.Printf("mod export failed: %v", exportErr)
+					s.status.SetText("Mod export failed.")
+					dialog.ShowError(exportErr, parent)
+					return
+				}
+				s.logger.Printf("exported %d mods to %s", len(mods), writer.URI())
+				s.status.SetText(fmt.Sprintf("Exported %d mod(s).", len(mods)))
+				dialog.ShowInformation(
+					"Mods exported",
+					fmt.Sprintf("Exported %d mod(s) with their update sources.\n\nThe Nexus API key was not included.", len(mods)),
+					parent,
+				)
+			})
+		}()
+	}, parent)
+	saveDialog.SetFileName("7d2d-mods" + tracker.ModArchiveExtension)
+	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{tracker.ModArchiveExtension}))
+	saveDialog.Show()
+}
+
+func (s *uiState) importMods(parent fyne.Window, destination string) {
+	if destination == "" {
+		dialog.ShowInformation("Choose a Mods folder", "Set the destination Mods folder before importing.", parent)
+		return
+	}
+	openDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, parent)
+			return
+		}
+		if reader == nil {
+			return
+		}
+		archivePath := reader.URI().Path()
+		if closeErr := reader.Close(); closeErr != nil {
+			dialog.ShowError(closeErr, parent)
+			return
+		}
+		s.status.SetText("Reading mod archive…")
+		go func() {
+			file, openErr := os.Open(archivePath)
+			if openErr != nil {
+				fyne.Do(func() {
+					s.status.SetText("Mod import failed.")
+					dialog.ShowError(openErr, parent)
+				})
+				return
+			}
+			info, statErr := file.Stat()
+			var manifest tracker.ModArchiveManifest
+			if statErr == nil {
+				manifest, statErr = tracker.InspectModsArchive(file, info.Size())
+			}
+			closeErr := file.Close()
+			if statErr == nil {
+				statErr = closeErr
+			}
+			fyne.Do(func() {
+				if statErr != nil {
+					s.logger.Printf("could not inspect mod archive %s: %v", archivePath, statErr)
+					s.status.SetText("Could not read mod archive.")
+					dialog.ShowError(statErr, parent)
+					return
+				}
+				s.status.SetText(fmt.Sprintf("Archive contains %d mod(s).", len(manifest.Mods)))
+				items := make([]modSelectionItem, 0, len(manifest.Mods))
+				for _, mod := range manifest.Mods {
+					label := mod.Name
+					if mod.Version != "" {
+						label += " — " + mod.Version
+					}
+					label += "  [" + mod.Folder + "]"
+					items = append(items, modSelectionItem{key: mod.Folder, label: label})
+				}
+				s.showModSelection(
+					"Select mods to import",
+					"Selected mods are installed into the configured Mods folder. "+
+						"If a selected folder already exists, it is replaced as a whole; files are never merged.",
+					"Import selected",
+					items,
+					func(selected map[string]bool) {
+						s.installModsArchive(parent, archivePath, destination, selected)
+					},
+				)
+			})
+		}()
+	}, parent)
+	openDialog.SetFilter(storage.NewExtensionFileFilter([]string{tracker.ModArchiveExtension}))
+	openDialog.Show()
+}
+
+func (s *uiState) installModsArchive(
+	parent fyne.Window,
+	archivePath string,
+	destination string,
+	selected map[string]bool,
+) {
+	s.status.SetText("Importing selected mods…")
+	go func() {
+		file, importErr := os.Open(archivePath)
+		if importErr != nil {
+			fyne.Do(func() {
+				s.status.SetText("Mod import failed.")
+				dialog.ShowError(importErr, parent)
+			})
+			return
+		}
+		info, statErr := file.Stat()
+		var result tracker.ModArchiveImportResult
+		if statErr == nil {
+			result, statErr = tracker.ImportModsArchive(
+				file,
+				info.Size(),
+				destination,
+				tracker.ModArchiveImportOptions{
+					SelectedFolders: selected,
+					ReplaceExisting: true,
+				},
+			)
+		}
+		closeErr := file.Close()
+		if statErr == nil {
+			statErr = closeErr
+		}
+		fyne.Do(func() {
+			if statErr != nil {
+				s.logger.Printf("mod import failed from %s: %v", archivePath, statErr)
+				s.status.SetText("Mod import failed.")
+				dialog.ShowError(statErr, parent)
+				return
+			}
+			for name, sources := range result.Sources {
+				s.config.Sources[name] = sources
+			}
+			s.folder.SetText(destination)
+			s.config.Folder = destination
+			if saveErr := tracker.SaveConfig(s.config); saveErr != nil {
+				s.logger.Printf("could not save imported sources: %v", saveErr)
+				s.status.SetText("Mods imported, but sources could not be saved.")
+				dialog.ShowError(saveErr, parent)
+				return
+			}
+			s.logger.Printf("imported %d new and replaced %d mods from %s",
+				len(result.Imported), len(result.Replaced), archivePath)
+			s.scan()
+			message := fmt.Sprintf(
+				"Imported %d new mod folder(s), replaced %d existing folder(s), and merged %d source mapping(s).",
+				len(result.Imported),
+				len(result.Replaced),
+				len(result.Sources),
+			)
+			dialog.ShowInformation("Mods imported", message, parent)
+		})
+	}()
+}
+
+func (s *uiState) showModSelection(
+	title string,
+	description string,
+	confirmLabel string,
+	items []modSelectionItem,
+	onConfirm func(map[string]bool),
+) {
+	selectionWindow := s.app.NewWindow(title)
+	checks := make(map[string]*widget.Check, len(items))
+	list := container.NewVBox()
+	for _, item := range items {
+		check := widget.NewCheck(item.label, nil)
+		check.SetChecked(true)
+		checks[item.key] = check
+		list.Add(check)
+	}
+	descriptionLabel := widget.NewLabel(description)
+	descriptionLabel.Wrapping = fyne.TextWrapWord
+	selectAll := widget.NewButton("Select all", func() {
+		for _, check := range checks {
+			check.SetChecked(true)
+		}
+	})
+	selectNone := widget.NewButton("Select none", func() {
+		for _, check := range checks {
+			check.SetChecked(false)
+		}
+	})
+	cancel := widget.NewButton("Cancel", selectionWindow.Close)
+	confirm := widget.NewButton(confirmLabel, func() {
+		selected := make(map[string]bool)
+		for key, check := range checks {
+			if check.Checked {
+				selected[key] = true
+			}
+		}
+		if len(selected) == 0 {
+			dialog.ShowInformation("Nothing selected", "Select at least one mod to continue.", selectionWindow)
+			return
+		}
+		selectionWindow.Close()
+		onConfirm(selected)
+	})
+	selectionWindow.SetContent(container.NewBorder(
+		container.NewBorder(nil, nil, nil, container.NewHBox(selectAll, selectNone), descriptionLabel),
+		container.NewHBox(cancel, confirm),
+		nil,
+		nil,
+		container.NewVScroll(list),
+	))
+	selectionWindow.Resize(fyne.NewSize(680, 500))
+	selectionWindow.CenterOnScreen()
+	selectionWindow.Show()
 }
 
 func (s *uiState) scan() {

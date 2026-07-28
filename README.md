@@ -100,6 +100,22 @@ the settings cog; it is stored only in the app's user configuration file.
 The application only reports updates. It intentionally does not download,
 overwrite, or remove mods.
 
+## Import and export
+
+Settings provides **Export Mods…** and **Import Mods…** actions. Both flows
+present a mod checklist. An export uses the dedicated `.7d2dml` extension
+(`7 Days to Die Mod Library`) and is a standard ZIP container internally. It
+contains a versioned `manifest.json` and the selected community mod folders
+under `Mods/`. The manifest stores update-source IDs by `ModInfo.xml` name. It
+does not contain the configured Mods path or Nexus API key, and game-managed
+Harmony folders are not offered for export.
+
+Import validates archive paths and source identifiers before extracting. New
+mod folders are staged and installed into the configured Mods directory. If a
+selected folder already exists, the old folder is atomically replaced as a
+whole rather than merged. Unselected folders remain untouched, and only source
+mappings belonging to selected mods are merged into the local configuration.
+
 ## Test and package
 
 ```bash
