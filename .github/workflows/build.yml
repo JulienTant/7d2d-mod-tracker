@@ -195,7 +195,7 @@ jobs:
             "dist/7d2d-mod-tracker-$env:BUILD_LABEL-windows-$env:TARGET_ARCH.exe"
 
       - name: Upload package
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: 7d2d-mod-tracker-${{ env.BUILD_LABEL }}-${{ runner.os }}-${{ matrix.arch }}
           path: dist/*
